@@ -37,6 +37,7 @@
 #include "map_blocks.h"
 #include "magic.h"
 #include "room_garden.h"
+#include "room_util.h"
 #include "config_creature.h"
 #include "config_terrain.h"
 #include "power_process.h"
@@ -96,19 +97,20 @@ TbBool detonate_shot(struct Thing *shotng, TbBool destroy)
     struct PlayerInfo* myplyr = get_my_player();
     short spell_level;
     long damage;
-    // Identify the creator of the shot
+    // Identify the creator of the shot.
     if (shotng->index != shotng->parent_idx) {
         castng = thing_get(shotng->parent_idx);
         TRACE_THING(castng);
     }
-    // If the shot has area_range, then make area damage
+    // If the shot has area_range, then make area damage.
+    // JUSTLOG("Shot has %d range with %d damage and %d blow with hit type %d.", shotst->area_range, shotst->area_damage, shotst->area_blow, shotst->area_hit_type);
     if (shotst->area_range != 0) {
-        struct CreatureStats* crstat = creature_stats_get_from_thing(castng);
-        //TODO SPELLS Spell level should be taken from within the shot, not from caster creature
-        // Caster may have leveled up, or even may be already dead
-        // But currently shot do not store its level, so we don't really have a choice
+        // TODO SPELLS Spell level should be taken from within the shot, not from caster creature.
+        // Caster may have leveled up, or even may be already dead.
+        // But currently shot do not store its level, so we don't really have a choice.
         struct CreatureControl* cctrl = creature_control_get_from_thing(castng);
-        long dist = compute_creature_attack_range(shotst->area_range * COORD_PER_STL, crstat->luck, cctrl->explevel);
+        long luck = calculate_correct_creature_luck(castng);
+        long dist = compute_creature_attack_range(shotst->area_range * COORD_PER_STL, luck, cctrl->explevel);
         if (flag_is_set(shotst->model_flags, ShMF_StrengthBased))
         {
             if (shotst->area_damage == 0)
@@ -122,10 +124,10 @@ TbBool detonate_shot(struct Thing *shotng, TbBool destroy)
         }
         else
         {
-            damage = compute_creature_attack_spell_damage(shotst->area_damage, crstat->luck, cctrl->explevel, castng);
+            damage = compute_creature_attack_spell_damage(shotst->area_damage, luck, cctrl->explevel, castng);
         }
         HitTargetFlags hit_targets = hit_type_to_hit_targets(shotst->area_hit_type);
-        explosion_affecting_area(shotng, &shotng->mappos, dist, damage, shotst->area_blow, hit_targets);
+        explosion_affecting_area(shotng, &shotng->mappos, dist, damage, shotst->area_blow, hit_targets, shotst->element_flags);
     }
     create_used_effect_or_element(&shotng->mappos, shotst->explode.effect1_model, shotng->owner, shotng->index);
     create_used_effect_or_element(&shotng->mappos, shotst->explode.effect2_model, shotng->owner, shotng->index);
@@ -137,7 +139,7 @@ TbBool detonate_shot(struct Thing *shotng, TbBool destroy)
     {
         create_effect_around_thing(shotng, shotst->explode.around_effect2_model);
     }
-    //TODO CONFIG shot model dependency, make config option instead
+    // TODO CONFIG shot model dependency, make config option instead.
     switch (shotng->model)
     {
     case ShM_Lightning:
@@ -277,7 +279,7 @@ SubtlCodedCoords process_dig_shot_hit_wall(struct Thing *thing, long blocked_fla
         return 0;
     }
     TbBool can_dig;
-    switch ( blocked_flags )
+    switch (blocked_flags)
     {
         case SlbBloF_WalledX:
         {
@@ -489,8 +491,7 @@ TbBool shot_hit_wall_at(struct Thing *shotng, struct Coord3d *pos)
 {
     struct Thing *doortng;
     long i;
-    SYNCDBG(8,"Starting for %s index %d",thing_model_name(shotng),(int)shotng->index);
-
+    SYNCDBG(8, "Starting for %s index %d", thing_model_name(shotng), (int)shotng->index);
     struct Thing* efftng = INVALID_THING;
     TbBool destroy_shot = 0;
     struct ShotConfigStats* shotst = get_shot_model_stats(shotng->model);
@@ -501,6 +502,7 @@ TbBool shot_hit_wall_at(struct Thing *shotng, struct Coord3d *pos)
     short smpl_idx;
     unsigned char range;
     struct SlabMap* slb;
+    MapSubtlCoord stl_x, stl_y;
     MapSubtlCoord hit_stl_x, hit_stl_y;
     if (digging)
     {
@@ -518,13 +520,13 @@ TbBool shot_hit_wall_at(struct Thing *shotng, struct Coord3d *pos)
                 angle = shotng->move_angle_xy & 0xFC00;
                 if (angle != 0)
                 {
-                  hit_stl_x = pos->x.stl.num - 1;
-                  hit_stl_y = pos->y.stl.num;
+                    hit_stl_x = pos->x.stl.num - 1;
+                    hit_stl_y = pos->y.stl.num;
                 }
                 else
                 {
-                  hit_stl_x = pos->x.stl.num + 1;
-                  hit_stl_y = pos->y.stl.num;
+                    hit_stl_x = pos->x.stl.num + 1;
+                    hit_stl_y = pos->y.stl.num;
                 }
                 break;
             }
@@ -533,13 +535,13 @@ TbBool shot_hit_wall_at(struct Thing *shotng, struct Coord3d *pos)
                 angle = shotng->move_angle_xy & 0xFE00;
                 if ((angle != ANGLE_NORTH) && (angle != ANGLE_WEST))
                 {
-                  hit_stl_x = pos->x.stl.num;
-                  hit_stl_y = pos->y.stl.num + 1;
+                    hit_stl_x = pos->x.stl.num;
+                    hit_stl_y = pos->y.stl.num + 1;
                 }
                 else
                 {
-                  hit_stl_x = pos->x.stl.num;
-                  hit_stl_y = pos->y.stl.num - 1;
+                    hit_stl_x = pos->x.stl.num;
+                    hit_stl_y = pos->y.stl.num - 1;
                 }
                 break;
             }
@@ -592,8 +594,7 @@ TbBool shot_hit_wall_at(struct Thing *shotng, struct Coord3d *pos)
             }
         }
     }
-
-    // If blocked by a higher wall
+    // If blocked by a higher wall.
     if ((blocked_flags & SlbBloF_WalledZ) != 0)
     {
         long cube_id = get_top_cube_at(pos->x.stl.num, pos->y.stl.num, NULL);
@@ -602,25 +603,80 @@ TbBool shot_hit_wall_at(struct Thing *shotng, struct Coord3d *pos)
         {
             efftng = create_shot_hit_effect(&shotng->mappos, shotng->owner, shotst->hit_door.effect_model, shotst->hit_door.sndsample_idx, shotst->hit_door.sndsample_range, shotng->index);
             if (!shotst->hit_door.withstand)
-              destroy_shot = 1;
-            i = calculate_shot_real_damage_to_door(doortng, shotng);
-            apply_damage_to_thing(doortng, i, -1);
-            reveal_secret_door_to_player(doortng,shotng->owner);
-        } else
-        if (cube_is_water(cube_id))
+            {
+                destroy_shot = 1;
+            }
+            if (shotst->slab_kind > 0)
+            {
+                stl_x = doortng->mappos.x.stl.num;
+                stl_y = doortng->mappos.y.stl.num;
+                slb = get_slabmap_block(subtile_slab(stl_x), subtile_slab(stl_y));
+                if (slab_kind_is_indestructible(slb->kind) == false)
+                {
+                    SlabKind slab = shotst->slab_kind;
+                    if (subtile_is_room(stl_x, stl_y))
+                    {
+                        delete_room_slab(subtile_slab(stl_x), subtile_slab(stl_y), true);
+                    }
+                    destroy_door(doortng);
+                    place_slab_type_on_map(slab, stl_x, stl_y, game.neutral_player_num, 0);
+                    do_slab_efficiency_alteration(subtile_slab(stl_x), subtile_slab(stl_y));
+                }
+            } else {
+                i = calculate_shot_real_damage_to_door(doortng, shotng);
+                apply_damage_to_thing(doortng, i, -1, shotst->element_flags);
+                reveal_secret_door_to_player(doortng, shotng->owner);
+            }
+        }
+        else if (cube_is_water(cube_id))
         {
             efftng = create_shot_hit_effect(&shotng->mappos, shotng->owner, shotst->hit_water.effect_model, shotst->hit_water.sndsample_idx, shotst->hit_water.sndsample_range, shotng->index);
-            if (!shotst->hit_water.withstand) {
+            if (!shotst->hit_water.withstand)
+            {
                 destroy_shot = 1;
             }
-        } else
-        if (cube_is_lava(cube_id))
+            if (shotst->slab_kind > 0)
+            {
+                stl_x = efftng->mappos.x.stl.num;
+                stl_y = efftng->mappos.y.stl.num;
+                slb = get_slabmap_block(subtile_slab(stl_x), subtile_slab(stl_y));
+                if (slab_kind_is_indestructible(slb->kind) == false)
+                {
+                    SlabKind slab = shotst->slab_kind;
+                    if (subtile_is_room(stl_x, stl_y))
+                    {
+                        delete_room_slab(subtile_slab(stl_x), subtile_slab(stl_y), true);
+                    }
+                    place_slab_type_on_map(slab, stl_x, stl_y, game.neutral_player_num, 0);
+                    do_slab_efficiency_alteration(subtile_slab(stl_x), subtile_slab(stl_y));
+                }
+            }
+        }
+        else if (cube_is_lava(cube_id))
         {
             efftng = create_shot_hit_effect(&shotng->mappos, shotng->owner, shotst->hit_lava.effect_model, shotst->hit_lava.sndsample_idx, shotst->hit_lava.sndsample_range, shotng->index);
-            if (!shotst->hit_lava.withstand) {
+            if (!shotst->hit_lava.withstand)
+            {
                 destroy_shot = 1;
             }
-        } else
+            if (shotst->slab_kind > 0)
+            {
+                stl_x = efftng->mappos.x.stl.num;
+                stl_y = efftng->mappos.y.stl.num;
+                slb = get_slabmap_block(subtile_slab(stl_x), subtile_slab(stl_y));
+                if (slab_kind_is_indestructible(slb->kind) == false)
+                {
+                    SlabKind slab = shotst->slab_kind;
+                    if (subtile_is_room(stl_x, stl_y))
+                    {
+                        delete_room_slab(subtile_slab(stl_x), subtile_slab(stl_y), true);
+                    }
+                    place_slab_type_on_map(slab, stl_x, stl_y, game.neutral_player_num, 0);
+                    do_slab_efficiency_alteration(subtile_slab(stl_x), subtile_slab(stl_y));
+                }
+            }
+        }
+        else
         {
             eff_kind = shotst->hit_generic.effect_model;
             smpl_idx = shotst->hit_generic.sndsample_idx;
@@ -636,13 +692,29 @@ TbBool shot_hit_wall_at(struct Thing *shotng, struct Coord3d *pos)
                 }
             }
             efftng = create_shot_hit_effect(&shotng->mappos, shotng->owner, eff_kind, smpl_idx, range, shotng->index);
-            if (!shotst->hit_generic.withstand) {
+            if (!shotst->hit_generic.withstand)
+            {
                 destroy_shot = 1;
+            }
+            if (shotst->slab_kind > 0)
+            {
+                stl_x = efftng->mappos.x.stl.num;
+                stl_y = efftng->mappos.y.stl.num;
+                slb = get_slabmap_block(subtile_slab(stl_x), subtile_slab(stl_y));
+                if (slab_kind_is_indestructible(slb->kind) == false)
+                {
+                    SlabKind slab = shotst->slab_kind;
+                    if (subtile_is_room(stl_x, stl_y))
+                    {
+                        delete_room_slab(subtile_slab(stl_x), subtile_slab(stl_y), true);
+                    }
+                    place_slab_type_on_map(slab, stl_x, stl_y, game.neutral_player_num, 0);
+                    do_slab_efficiency_alteration(subtile_slab(stl_x), subtile_slab(stl_y));
+                }
             }
         }
     }
-
-    if ( !destroy_shot )
+    if (!destroy_shot)
     {
         if ((blocked_flags & (SlbBloF_WalledX|SlbBloF_WalledY)) != 0)
         {
@@ -663,11 +735,14 @@ TbBool shot_hit_wall_at(struct Thing *shotng, struct Coord3d *pos)
             {
                 efftng = create_shot_hit_effect(&shotng->mappos, shotng->owner, shotst->hit_door.effect_model, shotst->hit_door.sndsample_idx, shotst->hit_door.sndsample_range, shotng->index);
                 if (!shotst->hit_door.withstand)
+                {
                     destroy_shot = 1;
+                }
                 i = calculate_shot_real_damage_to_door(doortng, shotng);
-                apply_damage_to_thing(doortng, i, -1);
-                reveal_secret_door_to_player(doortng,shotng->owner);
-            } else
+                apply_damage_to_thing(doortng, i, -1, shotst->element_flags);
+                reveal_secret_door_to_player(doortng, shotng->owner);
+            }
+            else
             {
                 eff_kind = shotst->hit_generic.effect_model;
                 smpl_idx = shotst->hit_generic.sndsample_idx;
@@ -683,19 +758,20 @@ TbBool shot_hit_wall_at(struct Thing *shotng, struct Coord3d *pos)
                     }
                 }
                 efftng = create_shot_hit_effect(&shotng->mappos, shotng->owner, eff_kind, smpl_idx, range, shotng->index);
-
-                if (!shotst->hit_generic.withstand) {
+                if (!shotst->hit_generic.withstand)
+                {
                     destroy_shot = 1;
                 }
             }
         }
     }
-    if (!thing_is_invalid(efftng)) {
+    if (!thing_is_invalid(efftng))
+    {
         efftng->shot_effect.hit_type = shotst->area_hit_type;
         efftng->shot_effect.parent_class_id = TCls_Shot;
         efftng->shot_effect.parent_model = shotng->model;
     }
-    if ( destroy_shot )
+    if (destroy_shot)
     {
         return detonate_shot(shotng, true);
     }
@@ -724,23 +800,26 @@ TbBool shot_hit_wall_at(struct Thing *shotng, struct Coord3d *pos)
  */
 long shot_hit_door_at(struct Thing *shotng, struct Coord3d *pos)
 {
-    SYNCDBG(18,"Starting for %s index %d",thing_model_name(shotng),(int)shotng->index);
+    SYNCDBG(18, "Starting for %s index %d", thing_model_name(shotng), (int)shotng->index);
     TbBool shot_explodes = false;
     struct ShotConfigStats* shotst = get_shot_model_stats(shotng->model);
     struct Thing* efftng = INVALID_THING;
+    struct SlabMap* slb;
+    MapSubtlCoord stl_x;
+    MapSubtlCoord stl_y;
     long blocked_flags = get_thing_blocked_flags_at(shotng, pos);
     if (blocked_flags != 0)
     {
         struct Thing* doortng = get_door_for_position(pos->x.stl.num, pos->y.stl.num);
-        // If we did found a door to hit
+        // If we did found a door to hit.
         if (!thing_is_invalid(doortng))
         {
-            // If the shot hit is supposed to create effect thing
+            // If the shot hit is supposed to create effect thing.
             if (shotst->hit_door.effect_model != 0)
             {
                 efftng = create_used_effect_or_element(&shotng->mappos, shotst->hit_door.effect_model, shotng->owner, shotng->index);
             }
-            // If the shot hit is supposed to create sound
+            // If the shot hit is supposed to create sound.
             int n = shotst->hit_door.sndsample_idx;
             int i;
             if (n > 0)
@@ -751,23 +830,44 @@ long shot_hit_door_at(struct Thing *shotng, struct Coord3d *pos)
                     thing_play_sample(efftng, n + UNSYNC_RANDOM(i), NORMAL_PITCH, 0, 3, 0, 2, FULL_LOUDNESS);
                 }
             }
-            // Shall the shot be destroyed on impact
+            // Shall the shot be destroyed on impact.
             if (!shotst->hit_door.withstand)
             {
                 shot_explodes = true;
             }
-            // Apply damage to the door
-            i = calculate_shot_real_damage_to_door(doortng, shotng);
-            apply_damage_to_thing(doortng, i, -1);
-            reveal_secret_door_to_player(doortng,shotng->owner);
-      }
+            // Apply damage to the door.
+            if (shotst->slab_kind > 0)
+            {
+                stl_x = doortng->mappos.x.stl.num;
+                stl_y = doortng->mappos.y.stl.num;
+                slb = get_slabmap_block(subtile_slab(stl_x), subtile_slab(stl_y));
+                if (slab_kind_is_indestructible(slb->kind) == false)
+                {
+                    SlabKind slab = shotst->slab_kind;
+                    if (subtile_is_room(stl_x, stl_y))
+                    {
+                        delete_room_slab(subtile_slab(stl_x), subtile_slab(stl_y), true);
+                    }
+                    destroy_door(doortng);
+                    place_slab_type_on_map(slab, stl_x, stl_y, game.neutral_player_num, 0);
+                    do_slab_efficiency_alteration(subtile_slab(stl_x), subtile_slab(stl_y));
+                }
+            }
+            else
+            {
+                i = calculate_shot_real_damage_to_door(doortng, shotng);
+                apply_damage_to_thing(doortng, i, -1, shotst->element_flags);
+                reveal_secret_door_to_player(doortng, shotng->owner);
+            }
+        }
     }
-    if (!thing_is_invalid(efftng)) {
+    if (!thing_is_invalid(efftng))
+    {
         efftng->shot_effect.hit_type = shotst->area_hit_type;
         efftng->shot_effect.parent_class_id = TCls_Shot;
         efftng->shot_effect.parent_model = shotng->model;
     }
-    if ( shot_explodes )
+    if (shot_explodes)
     {
         return detonate_shot(shotng, true);
     }
@@ -792,7 +892,7 @@ TbBool apply_shot_experience(struct Thing *shooter, long exp_factor, long exp_in
     long exp_gained = (exp_mag * (exp_factor + game.conf.crtr_conf.exp.exp_on_hitting_increase_on_exp * exp_factor * exp_increase / 100) << 8) / 256;
     shcctrl->prev_exp_points = shcctrl->exp_points;
     shcctrl->exp_points += exp_gained;
-    if ( check_experience_upgrade(shooter) ) {
+    if (check_experience_upgrade(shooter)) {
         external_set_thing_state(shooter, CrSt_CreatureBeHappy);
     }
     return true;
@@ -865,7 +965,7 @@ static TbBool shot_hit_trap_at(struct Thing* shotng, struct Thing* target, struc
   
         if ((thing_is_destructible_trap(target) > 0) || ((thing_is_destructible_trap(target) > -1) && (shotst->model_flags & ShMF_Disarming)))
         {
-            damage_done = apply_damage_to_thing(target, shotng->shot.damage, -1);
+            damage_done = apply_damage_to_thing(target, shotng->shot.damage, -1, shotst->element_flags);
 
             // Drain allows caster to regain half of damage
             if ((shotst->model_flags & ShMF_LifeDrain) && thing_is_creature(shootertng))
@@ -941,7 +1041,7 @@ static TbBool shot_hit_object_at(struct Thing *shotng, struct Thing *target, str
     {
         if (object_can_be_damaged(target)) // do not damage objects that cannot be destroyed
         {
-            damage_done = apply_damage_to_thing(target, shotng->shot.damage, -1);
+            damage_done = apply_damage_to_thing(target, shotng->shot.damage, -1, shotst->element_flags);
 
             // Drain allows caster to regain half of damage
             if ((shotst->model_flags & ShMF_LifeDrain) && thing_is_creature(shootertng))
@@ -970,7 +1070,9 @@ static TbBool shot_hit_object_at(struct Thing *shotng, struct Thing *target, str
 long get_damage_of_melee_shot(struct Thing *shotng, const struct Thing *target, TbBool NeverBlock)
 {
     if (NeverBlock)
+    {
         return shotng->shot.damage;
+    }
     long crdefense = calculate_correct_creature_defense(target);
     long hitchance = ((long)shotng->shot.dexterity - crdefense) / 2;
     if (hitchance < -96)
@@ -1127,15 +1229,23 @@ int weight_calculated_push_strenght(int weight, int push_strength)
 long melee_shot_hit_creature_at(struct Thing *shotng, struct Thing *trgtng, struct Coord3d *pos)
 {
     struct ShotConfigStats* shotst = get_shot_model_stats(shotng->model);
+    struct CreatureControl* cctrl;
+    struct CreatureControl* trgtcctrl;
+    struct CreatureStats* crstat;
+    struct CreatureStats* trgtstat;
     long throw_strength = shotst->push_on_hit;
     int adjusted_throw_strength;
     long n;
     if (trgtng->health < 0)
+    {
         return 0;
+    }
     struct Thing* shooter = INVALID_THING;
     if (shotng->parent_idx != shotng->index)
+    {
         shooter = thing_get(shotng->parent_idx);
-    struct CreatureControl* tgcctrl = creature_control_get_from_thing(trgtng);
+    }
+    trgtcctrl = creature_control_get_from_thing(trgtng);
     long damage = get_damage_of_melee_shot(shotng, trgtng, flag_is_set(shotst->model_flags, ShMF_NeverBlock));
     if (damage > 0)
     {
@@ -1144,10 +1254,43 @@ long melee_shot_hit_creature_at(struct Thing *shotng, struct Thing *trgtng, stru
             play_creature_sound(trgtng, CrSnd_Hurt, 3, 0);
         }
         create_relevant_effect_for_shot_hitting_thing(shotng, trgtng);
-        if (!thing_is_invalid(shooter)) {
-            damage = apply_damage_to_thing_and_display_health(trgtng, damage, shooter->owner);
-        } else {
-            damage = apply_damage_to_thing_and_display_health(trgtng, damage, -1);
+        crstat = creature_stats_get_from_thing(shooter);
+        trgtstat = creature_stats_get_from_thing(trgtng);
+        if (!thing_is_invalid(shooter))
+        {
+            if (((shotst->model_flags & ShMF_BlocksRebirth) != 0) && (trgtstat->is_undead != 0))
+            {
+                apply_damage_to_thing_and_display_health(trgtng, shotng->shot.damage, shooter->owner, DTF_Holy);
+            }
+            else
+            {
+                if (crstat->hoarfrost != 0)
+                {
+                    apply_damage_to_thing_and_display_health(trgtng, shotng->shot.damage, shooter->owner, DTF_Hoarfrost);
+                }
+                else
+                {
+                    apply_damage_to_thing_and_display_health(trgtng, shotng->shot.damage, shooter->owner, shotst->element_flags);
+                }
+            }
+        }
+        else
+        {
+            if (((shotst->model_flags & ShMF_BlocksRebirth) != 0) && (trgtstat->is_undead != 0))
+            {
+                apply_damage_to_thing_and_display_health(trgtng, shotng->shot.damage, -1, DTF_Holy);
+            }
+            else
+            {
+                if (crstat->hoarfrost != 0)
+                {
+                    apply_damage_to_thing_and_display_health(trgtng, shotng->shot.damage, -1, DTF_Hoarfrost);
+                }
+                else
+                {
+                    apply_damage_to_thing_and_display_health(trgtng, shotng->shot.damage, -1, shotst->element_flags);
+                }
+            }
         }
         if (shotst->model_flags & ShMF_LifeDrain)
         {
@@ -1155,18 +1298,21 @@ long melee_shot_hit_creature_at(struct Thing *shotng, struct Thing *trgtng, stru
         }
         if (shotst->cast_spell_kind != 0)
         {
-            struct CreatureControl* scctrl = creature_control_get_from_thing(shooter);
-            if (!creature_control_invalid(scctrl)) {
-                n = scctrl->explevel;
+            cctrl = creature_control_get_from_thing(shooter);
+            if (!creature_control_invalid(cctrl))
+            {
+                n = cctrl->explevel;
             }
-            else {
+            else
+            {
                 n = 0;
             }
             apply_spell_effect_to_thing(trgtng, shotst->cast_spell_kind, n, shotng->owner);
             struct SpellConfig *spconf = get_spell_config(shotst->cast_spell_kind);
             if (flag_is_set(spconf->spell_flags, CSAfF_Disease))
             {
-                tgcctrl->disease_caster_plyridx = shotng->owner;
+                trgtcctrl = creature_control_get_from_thing(trgtng);
+                trgtcctrl->disease_caster_plyridx = shotng->owner;
             }
         }
         if (shotst->model_flags & ShMF_GroupUp)
@@ -1185,12 +1331,10 @@ long melee_shot_hit_creature_at(struct Thing *shotng, struct Thing *trgtng, stru
         }
         if (shotst->target_hitstop_turns != 0) 
         {
-            tgcctrl->frozen_on_hit = shotst->target_hitstop_turns;
+            trgtcctrl = creature_control_get_from_thing(trgtng);
+            trgtcctrl->frozen_on_hit = shotst->target_hitstop_turns;
         }
-
         adjusted_throw_strength = throw_strength;
-
-
         if (game.conf.rules.magic.weight_calculate_push > 0)
         {
             int weight = compute_creature_weight(trgtng);
@@ -1212,12 +1356,14 @@ long melee_shot_hit_creature_at(struct Thing *shotng, struct Thing *trgtng, stru
         }
         if (trgtng->health >= 0)
         {
-            if (trgtng->owner != shotng->owner) {
+            if (trgtng->owner != shotng->owner)
+            {
                 check_hit_when_attacking_door(trgtng);
             }
-        } else
+        }
+        else
         {
-            shot_kill_creature(shotng,trgtng);
+            shot_kill_creature(shotng, trgtng);
         }
         if (shotst->area_range != 0)
         {
@@ -1253,13 +1399,18 @@ long shot_hit_creature_at(struct Thing *shotng, struct Thing *trgtng, struct Coo
     long i;
     long n;
     int adjusted_push_strength;
-    struct ShotConfigStats* shotst = get_shot_model_stats(shotng->model);
+    struct ShotConfigStats *shotst = get_shot_model_stats(shotng->model);
+    struct CreatureControl *cctrl;
+    struct CreatureControl *trgtcctrl;
+    struct CreatureStats *crstat;
+    struct CreatureStats *trgtstat;
     long push_strength = shotst->push_on_hit;
-    struct Thing* shooter = INVALID_THING;
-    if (shotng->parent_idx != shotng->index) {
+    struct Thing *shooter = INVALID_THING;
+    if (shotng->parent_idx != shotng->index)
+    {
         shooter = thing_get(shotng->parent_idx);
     }
-    // Two fighting creatures gives experience
+    // Two fighting creatures gives experience.
     if (thing_is_creature(shooter) && thing_is_creature(trgtng))
     {
         apply_shot_experience_from_hitting_creature(shooter, trgtng, shotng->model);
@@ -1268,13 +1419,15 @@ long shot_hit_creature_at(struct Thing *shotng, struct Thing *trgtng, struct Coo
     {
         creature_start_combat_with_trap_if_available(trgtng, shooter);
     }
-    if (((shotst->model_flags & ShMF_NoHit) != 0) || (trgtng->health < 0)) {
+    if (((shotst->model_flags & ShMF_NoHit) != 0) || (trgtng->health < 0))
+    {
         return 0;
     }
     if (creature_under_spell_effect(trgtng, CSAfF_Rebound) && !flag_is_set(shotst->model_flags, ShMF_ReboundImmune))
     {
-        struct Thing* killertng = INVALID_THING;
-        if (shotng->index != shotng->parent_idx) {
+        struct Thing *killertng = INVALID_THING;
+        if (shotng->index != shotng->parent_idx)
+        {
             killertng = thing_get(shotng->parent_idx);
         }
         if (!thing_is_invalid(killertng))
@@ -1286,7 +1439,7 @@ long shot_hit_creature_at(struct Thing *shotng, struct Thing *trgtng, struct Coo
             struct Coord3d pos2;
             pos2.x.val = killertng->mappos.x.val;
             pos2.y.val = killertng->mappos.y.val;
-            if(thing_is_deployed_trap(killertng))
+            if (thing_is_deployed_trap(killertng))
             {
                 pos2.z.val = killertng->mappos.z.val;
                 pos2.z.val += (killertng->clipbox_size_z >> 1);
@@ -1297,15 +1450,16 @@ long shot_hit_creature_at(struct Thing *shotng, struct Thing *trgtng, struct Coo
             }
             else
             {
-                struct CreatureControl* cctrl = creature_control_get_from_thing(killertng);
-                short target_center = (killertng->solid_size_z + ((killertng->solid_size_z * game.conf.crtr_conf.exp.size_increase_on_exp * cctrl->explevel) / 100)) / 2;
+                struct CreatureControl *kllrcctrl = creature_control_get_from_thing(killertng);
+                short target_center = (killertng->solid_size_z + ((killertng->solid_size_z * game.conf.crtr_conf.exp.size_increase_on_exp * kllrcctrl->explevel) / 100)) / 2;
                 pos2.z.val = target_center + killertng->mappos.z.val;
             }
             clear_thing_acceleration(shotng);
             set_thing_acceleration_angles(shotng, get_angle_xy_to(&shotng->mappos, &pos2), get_angle_yz_to(&shotng->mappos, &pos2));
             shotng->parent_idx = trgtng->parent_idx;
             shotng->owner = trgtng->owner;
-        } else
+        }
+        else
         {
             clear_thing_acceleration(shotng);
             i = (shotng->move_angle_xy + LbFPMath_PI) & LbFPMath_AngleMask;
@@ -1318,11 +1472,135 @@ long shot_hit_creature_at(struct Thing *shotng, struct Thing *trgtng, struct Coo
         }
         return 1;
     }
-    if (flag_is_set(shotst->model_flags,ShMF_StrengthBased))
+	cctrl = creature_control_get_from_thing(shooter);
+	trgtcctrl = creature_control_get_from_thing(trgtng);
+    if (!creature_control_invalid(cctrl) && !creature_control_invalid(trgtcctrl))
+    {
+        if (shotst->dexterity_percent > 0)
+        {
+            unsigned char dxtprcnt = shotst->dexterity_percent;
+            unsigned char dxtshtr = calculate_correct_creature_dexterity(shooter);
+            unsigned char deftrgt = calculate_correct_creature_defense(trgtng);
+            HitPoints dxtdmg = (((dxtshtr * dxtprcnt) / 100) * (256 - deftrgt)) / 256;
+            if (!thing_is_invalid(shooter))
+            {
+                apply_damage_to_thing_and_display_health(trgtng, dxtdmg, shooter->owner, shotst->element_flags);
+            }
+            else
+            {
+                apply_damage_to_thing_and_display_health(trgtng, dxtdmg, -1, shotst->element_flags);
+            }
+        }
+        if (shotst->break_percent > 0)
+        {
+            cctrl = creature_control_get_from_thing(shooter);
+            HitPoints max_health = cctrl->max_health;
+            HitPoints current_health = shooter->health;
+            unsigned char brkprcnt = shotst->break_percent;
+            HitPoints brkdmg = ((max_health - current_health) * brkprcnt) / 100;
+            if (!thing_is_invalid(shooter))
+            {
+                apply_damage_to_thing_and_display_health(trgtng, brkdmg, shooter->owner, shotst->element_flags);
+            }
+            else
+            {
+                apply_damage_to_thing_and_display_health(trgtng, brkdmg, -1, shotst->element_flags);
+            }
+        }
+        if (shotst->gold_percent > 0)
+        {
+            unsigned char gldprcnt = shotst->gold_percent;
+            GoldAmount gldcnt = shooter->creature.gold_carried;
+            HitPoints glddmg = (gldcnt * gldprcnt) / 100;
+            if (!thing_is_invalid(shooter))
+            {
+                apply_damage_to_thing_and_display_health(trgtng, glddmg, shooter->owner, shotst->element_flags);
+                shooter->creature.gold_carried -= glddmg;
+            }
+            else
+            {
+                apply_damage_to_thing_and_display_health(trgtng, glddmg, -1, shotst->element_flags);
+            }
+        }
+        if (((shotst->model_flags & ShMF_Stealing) != 0) && (trgtng->creature.gold_carried > 0))
+        {
+            crstat = creature_stats_get_from_thing(shooter);
+            trgtstat = creature_stats_get_from_thing(trgtng);
+            unsigned char stlngshtr = calculate_correct_creature_dexterity(shooter);
+            unsigned char stlngtrgt = calculate_correct_creature_dexterity(trgtng);
+            GoldAmount stlngcnt = (stlngshtr * (384 - stlngtrgt)) / 512;
+            if (crstat->is_thief != 0)
+            {
+                stlngcnt *= 2;
+            }
+            if (trgtstat->is_thief != 0)
+            {
+                stlngcnt /= 2;
+            }
+            if (stlngcnt > trgtng->creature.gold_carried)
+            {
+                stlngcnt = trgtng->creature.gold_carried;
+            }
+            if (crstat->gold_hold >= (shooter->creature.gold_carried + stlngcnt))
+            {
+                shooter->creature.gold_carried += stlngcnt;
+            }
+            else
+            {
+                drop_gold_pile(stlngcnt, &shooter->mappos);
+            }
+            trgtng->creature.gold_carried -= stlngcnt;
+        }
+        if ((shotst->model_flags & ShMF_Looting) != 0)
+        {
+            crstat = creature_stats_get_from_thing(shooter);
+            trgtstat = creature_stats_get_from_thing(trgtng);
+            unsigned char lckshtr = GAME_RANDOM(calculate_correct_creature_luck(shooter));
+            unsigned char lcktrgt = GAME_RANDOM(calculate_correct_creature_luck(trgtng));
+            if (crstat->is_thief != 0)
+            {
+                lckshtr = 255;
+            }
+            if (trgtstat->is_thief != 0)
+            {
+                lcktrgt = 255;
+            }
+            if (lckshtr > lcktrgt)
+            {
+                unsigned char ltngshtr = calculate_correct_creature_dexterity(shooter);
+                unsigned char ltngtrgt = calculate_correct_creature_dexterity(trgtng);
+                GoldAmount ltngcnt = (ltngshtr * (384 - ltngtrgt)) / 512;
+                if (crstat->gold_hold >= (shooter->creature.gold_carried + ltngcnt))
+                {
+                    shooter->creature.gold_carried += ltngcnt;
+                }
+                else
+                {
+                    drop_gold_pile(ltngcnt, &trgtng->mappos);
+                }
+            }
+        }
+        if ((shotst->model_flags & ShMF_Charming) != 0)
+        {
+            trgtstat = creature_stats_get_from_thing(trgtng);
+            if (trgtstat->immune_to_charm == 0)
+            {
+                cctrl = creature_control_get_from_thing(shooter);
+                trgtcctrl = creature_control_get_from_thing(trgtng);
+                unsigned char lvlshtr = cctrl->explevel;
+                unsigned char lvltrgt = trgtcctrl->explevel;
+                if ((lvlshtr / 2) >= lvltrgt)
+                {
+                    change_creature_owner(trgtng, shooter->owner);
+                }
+            }
+        }
+    }
+    if (flag_is_set(shotst->model_flags, ShMF_StrengthBased))
     {
         return melee_shot_hit_creature_at(shotng, trgtng, pos);
     }
-    // Immunity to boulders
+    // Immunity to boulders.
     if (shot_is_boulder(shotng))
     {
         if ((get_creature_model_flags(trgtng) & CMF_ImmuneToBoulder) != 0)
@@ -1335,59 +1613,97 @@ long shot_hit_creature_at(struct Thing *shotng, struct Thing *trgtng, struct Coo
     if (shotng->shot.damage != 0)
     {
         HitPoints damage_done;
-        if (!thing_is_invalid(shooter)) {
-            damage_done = apply_damage_to_thing_and_display_health(trgtng, shotng->shot.damage, shooter->owner);
-        } else {
-            damage_done = apply_damage_to_thing_and_display_health(trgtng, shotng->shot.damage, -1);
+        crstat = creature_stats_get_from_thing(shooter);
+        trgtstat = creature_stats_get_from_thing(trgtng);
+        if (!thing_is_invalid(shooter))
+        {
+            if (((shotst->model_flags & ShMF_BlocksRebirth) != 0) && (trgtstat->is_undead != 0))
+            {
+                damage_done = apply_damage_to_thing_and_display_health(trgtng, shotng->shot.damage, shooter->owner, DTF_Holy);
+            }
+            else
+            {
+                if (crstat->hoarfrost != 0)
+                {
+                    damage_done = apply_damage_to_thing_and_display_health(trgtng, shotng->shot.damage, shooter->owner, DTF_Hoarfrost);
+                }
+                else
+                {
+                    damage_done = apply_damage_to_thing_and_display_health(trgtng, shotng->shot.damage, shooter->owner, shotst->element_flags);
+                }
+            }
+        }
+        else
+        {
+            if (((shotst->model_flags & ShMF_BlocksRebirth) != 0) && (trgtstat->is_undead != 0))
+            {
+                damage_done = apply_damage_to_thing_and_display_health(trgtng, shotng->shot.damage, -1, DTF_Holy);
+            }
+            else
+            {
+                if (crstat->hoarfrost != 0)
+                {
+                    damage_done = apply_damage_to_thing_and_display_health(trgtng, shotng->shot.damage, -1, DTF_Hoarfrost);
+                }
+                else
+                {
+                    damage_done = apply_damage_to_thing_and_display_health(trgtng, shotng->shot.damage, -1, shotst->element_flags);
+                }
+            }
         }
         if (shotst->model_flags & ShMF_LifeDrain)
         {
             give_shooter_drained_health(shooter, damage_done / 2);
         }
     }
-    struct CreatureControl* cctrl = creature_control_get_from_thing(trgtng);
     if (shotst->target_hitstop_turns != 0)
     {
-        if (cctrl->frozen_on_hit == 0) {
-            cctrl->frozen_on_hit = shotst->target_hitstop_turns;
+        trgtcctrl = creature_control_get_from_thing(trgtng);
+        if (trgtcctrl->frozen_on_hit == 0)
+        {
+            trgtcctrl->frozen_on_hit = shotst->target_hitstop_turns;
         }
     }
     if (shotst->cast_spell_kind != 0)
     {
-        struct CreatureControl* scctrl = creature_control_get_from_thing(shooter);
-        if (!creature_control_invalid(scctrl)) {
-            n = scctrl->explevel;
-        } else {
+        cctrl = creature_control_get_from_thing(shooter);
+        if (!creature_control_invalid(cctrl))
+        {
+            n = cctrl->explevel;
+        }
+        else
+        {
             n = 0;
         }
         apply_spell_effect_to_thing(trgtng, shotst->cast_spell_kind, n, shotng->owner);
         struct SpellConfig *spconf = get_spell_config(shotst->cast_spell_kind);
         if (flag_is_set(spconf->spell_flags, CSAfF_Disease))
         {
-            cctrl->disease_caster_plyridx = shotng->owner;
+            trgtcctrl = creature_control_get_from_thing(trgtng);
+            trgtcctrl->disease_caster_plyridx = shotng->owner;
         }
     }
     if (shotst->model_flags & ShMF_GroupUp)
     {
         if (thing_is_creature(shooter))
         {
-            if (get_no_creatures_in_group(shooter) < GROUP_MEMBERS_COUNT) {
+            if (get_no_creatures_in_group(shooter) < GROUP_MEMBERS_COUNT)
+            {
                 add_creature_to_group(trgtng, shooter);
             }
-        } else
+        }
+        else
         {
-            WARNDBG(8,"The %s index %d owner %d cannot group; invalid parent",thing_model_name(shotng),(int)shotng->index,(int)shotng->owner);
+            WARNDBG(8, "The %s index %d owner %d cannot group; invalid parent", thing_model_name(shotng), (int)shotng->index, (int)shotng->owner);
         }
     }
-
     adjusted_push_strength = push_strength;
     if (game.conf.rules.magic.weight_calculate_push > 0)
     {
         int weight = compute_creature_weight(trgtng);
         adjusted_push_strength = weight_calculated_push_strenght(weight, push_strength);
     }
-
-    if (push_strength != 0 )
+    if (push_strength != 0)
     {
         i = adjusted_push_strength * shotng->velocity.x.val;
         trgtng->veloc_push_add.x.val += i / 16;
@@ -1395,17 +1711,17 @@ long shot_hit_creature_at(struct Thing *shotng, struct Thing *trgtng, struct Coo
         trgtng->veloc_push_add.y.val += i / 16;
         trgtng->state_flags |= TF1_PushAdd;
     }
-
     if (creature_is_being_unconscious(trgtng))
     {
         if (push_strength == 0)
+        {
             push_strength++;
+        }
         if (game.conf.rules.game.classic_bugs_flags & ClscBug_FaintedImmuneToBoulder)
         {
-        push_strength *= 5;
-        int move_x = push_strength * shotng->velocity.x.val / 16.0;
-        int move_y = push_strength * shotng->velocity.y.val / 16.0;
-
+            push_strength *= 5;
+            int move_x = push_strength * shotng->velocity.x.val / 16.0;
+            int move_y = push_strength * shotng->velocity.y.val / 16.0;
             trgtng->veloc_push_add.x.val += move_x;
             trgtng->veloc_push_add.y.val += move_y;
             trgtng->state_flags |= TF1_PushAdd;
@@ -1417,7 +1733,7 @@ long shot_hit_creature_at(struct Thing *shotng, struct Thing *trgtng, struct Coo
         }
         else
         {
-            if (shotst->model_flags & ShMF_Boulder) //Boulders move units slightly but without purpose
+            if (shotst->model_flags & ShMF_Boulder) // Boulders move units slightly but without purpose.
             {
                 if (abs(shotng->velocity.x.val) >= abs(shotng->velocity.y.val))
                 {
@@ -1435,7 +1751,7 @@ long shot_hit_creature_at(struct Thing *shotng, struct Thing *trgtng, struct Coo
                 }
                 trgtng->state_flags |= TF1_PushAdd;
             }
-            else // Normal shots blast unconscious units out of the way
+            else // Normal shots blast unconscious units out of the way.
             {
                 push_strength *= 5;
                 i = push_strength * shotng->velocity.x.val;
@@ -1446,7 +1762,7 @@ long shot_hit_creature_at(struct Thing *shotng, struct Thing *trgtng, struct Coo
             }
         }
     }
-    else // not for unconscious units
+    else // Not for unconscious units.
     {
         if (shotst->hit_creature.sndsample_idx != 0)
         {
@@ -1454,39 +1770,36 @@ long shot_hit_creature_at(struct Thing *shotng, struct Thing *trgtng, struct Coo
             thing_play_sample(trgtng, shotst->hit_creature.sndsample_idx, NORMAL_PITCH, 0, 3, 0, 2, FULL_LOUDNESS);
         }
     }
-
     create_relevant_effect_for_shot_hitting_thing(shotng, trgtng);
     if (shotst->model_flags & ShMF_Boulder)
     {
-        if (creature_is_being_unconscious(trgtng)  && !(game.conf.rules.game.classic_bugs_flags & ClscBug_FaintedImmuneToBoulder)) //We're not actually hitting the unconscious units with a boulder
+        if (creature_is_being_unconscious(trgtng) && !(game.conf.rules.game.classic_bugs_flags & ClscBug_FaintedImmuneToBoulder)) // We're not actually hitting the unconscious units with a boulder.
         {
             return 0;
-        } 
+        }
         else
         {
-            struct CreatureStats* crstat = creature_stats_get_from_thing(trgtng);
-            shotng->health -= crstat->damage_to_boulder;
+            trgtstat = creature_stats_get_from_thing(trgtng);
+            shotng->health -= trgtstat->damage_to_boulder;
         }
-
     }
     if (trgtng->health < 0)
     {
         shot_kill_creature(shotng, trgtng);
-    } else
+    }
+    else
     {
-        if (trgtng->owner != shotng->owner) 
+        if (trgtng->owner != shotng->owner)
         {
             check_hit_when_attacking_door(trgtng);
         }
     }
-
     if (shotst->area_range != 0)
     {
         detonate_shot(shotng, shotst->destroy_on_first_hit);
     }
-
-
-    if (shotst->destroy_on_first_hit != 0) {
+    if (shotst->destroy_on_first_hit != 0)
+    {
         delete_thing_structure(shotng, 0);
     }
     return 1;
@@ -1494,12 +1807,35 @@ long shot_hit_creature_at(struct Thing *shotng, struct Thing *trgtng, struct Coo
 
 TbBool shot_hit_shootable_thing_at(struct Thing *shotng, struct Thing *target, struct Coord3d *pos)
 {
-    if (!thing_exists(target))
+    struct ShotConfigStats* shotst = get_shot_model_stats(shotng->model);
+    if (!thing_exists(target)) {
         return false;
+    } else {
+        if (shotst->slab_kind > 0)
+        {
+            MapSubtlCoord stl_x = target->mappos.x.stl.num;
+            MapSubtlCoord stl_y = target->mappos.y.stl.num;
+            struct SlabMap* slb = get_slabmap_block(subtile_slab(stl_x), subtile_slab(stl_y));
+            if (slab_kind_is_indestructible(slb->kind) == false)
+            {
+                SlabKind slab = shotst->slab_kind;
+                if (subtile_is_room(stl_x, stl_y))
+                {
+                    delete_room_slab(subtile_slab(stl_x), subtile_slab(stl_y), true);
+                }
+                place_slab_type_on_map(slab, stl_x, stl_y, game.neutral_player_num, 0);
+                do_slab_efficiency_alteration(subtile_slab(stl_x), subtile_slab(stl_y));
+            }
+        }
+    }
     if (target->class_id == TCls_Object) {
         return shot_hit_object_at(shotng, target, pos);
     }
     if (target->class_id == TCls_Creature) {
+        if ((target->owner == shotng->owner) && (shotst->no_trigger_on_friendly != 0))
+        {
+            return false;
+        }
         return shot_hit_creature_at(shotng, target, pos);
     }
     if (target->class_id == TCls_Trap) {
@@ -1638,7 +1974,7 @@ TngUpdateRet move_shot(struct Thing *shotng)
     {
         if (shot_hit_something_while_moving(shotng, &pos))
         {
-            if ( (!(shotst->model_flags & ShMF_Penetrating)) || (!thing_exists(shotng)) ) // Shot may have been destroyed when it hit something
+            if ((!(shotst->model_flags & ShMF_Penetrating)) || (!thing_exists(shotng))) // Shot may have been destroyed when it hit something
             {
                 return TUFRet_Deleted;
             }
@@ -1828,9 +2164,12 @@ TngUpdateRet update_shot(struct Thing *thing)
               {
                   shotst = get_shot_model_stats(ShM_GodLightBall);
                   draw_lightning(&thing->mappos,&target->mappos, shotst->effect_spacing, shotst->effect_id);
-                  apply_damage_to_thing_and_display_health(target, shotst->damage, thing->owner);
+                  apply_damage_to_thing_and_display_health(target, shotst->damage, thing->owner, shotst->element_flags);
               }
             }
+            break;
+        case ShUL_MeteorStorm:
+            draw_god_lightning(thing);
             break;
         default:
             // All shots that do not require special processing
@@ -1850,7 +2189,7 @@ TngUpdateRet update_shot(struct Thing *thing)
 
 struct Thing *create_shot(struct Coord3d *pos, ThingModel model, unsigned short owner)
 {
-    if ( !i_can_allocate_free_thing_structure(FTAF_FreeEffectIfNoSlots) )
+    if (!i_can_allocate_free_thing_structure(FTAF_FreeEffectIfNoSlots))
     {
         ERRORDBG(3,"Cannot create shot %d (%s) for player %d. There are too many things allocated.",(int)model,shot_code_name(model),(int)owner);
         erstat_inc(ESE_NoFreeThings);

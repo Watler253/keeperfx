@@ -76,43 +76,52 @@ const struct NamedCommand creaturetype_experience_commands[] = {
   };
 
 const struct NamedCommand creaturetype_instance_commands[] = {
-  {"Name",            1},
-  {"Time",            2},
-  {"ActionTime",      3},
-  {"ResetTime",       4},
-  {"FPTime",          5},
-  {"FPActiontime",    6},
-  {"FPResettime",     7},
-  {"ForceVisibility", 8},
-  {"TooltipTextID",   9},
-  {"SymbolSprites",  10},
-  {"Graphics",       11},
-  {"Function",       12},
-  {"RangeMin",       13},
-  {"RangeMax",       14},
-  {"Properties",     15},
-  {"FpinstantCast",  16},
-  {"PrimaryTarget",  17},
-  {"ValidateSourceFunc",   18},
-  {"ValidateTargetFunc",   19},
-  {"SearchTargetsFunc",    20},
-  {"PostalPriority",       21},
-  {NULL,              0},
+  {"Name",                1},
+  {"Time",                2},
+  {"ActionTime",          3},
+  {"ResetTime",           4},
+  {"FPTime",              5},
+  {"FPActiontime",        6},
+  {"FPResettime",         7},
+  {"ForceVisibility",     8},
+  {"TooltipTextID",       9},
+  {"SymbolSprites",      10},
+  {"Graphics",           11},
+  {"Function",           12},
+  {"RangeMin",           13},
+  {"RangeMax",           14},
+  {"Properties",         15},
+  {"FpinstantCast",      16},
+  {"PrimaryTarget",      17},
+  {"ValidateSourceFunc", 18},
+  {"ValidateTargetFunc", 19},
+  {"SearchTargetsFunc",  20},
+  {"Priority",           21},
+  {NULL,                  0},
   };
 
 const struct NamedCommand creaturetype_instance_properties[] = {
-  {"REPEAT_TRIGGER",       InstPF_RepeatTrigger},
-  {"RANGED_ATTACK",        InstPF_RangedAttack},
-  {"MELEE_ATTACK",         InstPF_MeleeAttack},
-  {"RANGED_DEBUFF",        InstPF_RangedDebuff},
-  {"SELF_BUFF",            InstPF_SelfBuff},
-  {"DANGEROUS",            InstPF_Dangerous},
-  {"DESTRUCTIVE",          InstPF_Destructive},
-  {"DISARMING",            InstPF_Disarming},
-  {"DISPLAY_SWIPE",        InstPF_UsesSwipe},
-  {"RANGED_BUFF",          InstPF_RangedBuff},
-  {"NEEDS_TARGET",         InstPF_NeedsTarget},
-  {NULL,                     0},
+  {"REPEAT_TRIGGER",           InstPF_RepeatTrigger},
+  {"RANGED_ATTACK",            InstPF_RangedAttack},
+  {"MELEE_ATTACK",             InstPF_MeleeAttack},
+  {"RANGED_DEBUFF",            InstPF_RangedDebuff},
+  {"SELF_BUFF",                InstPF_SelfBuff},
+  {"DANGEROUS",                InstPF_Dangerous},
+  {"DESTRUCTIVE",              InstPF_Destructive},
+  {"DISARMING",                InstPF_Disarming},
+  {"DISPLAY_SWIPE",            InstPF_UsesSwipe},
+  {"RANGED_BUFF",              InstPF_RangedBuff},
+  {"NEEDS_TARGET",             InstPF_NeedsTarget},
+  {"DIGGER_TASK",              InstPF_DiggerTask},
+  {"OUT_OF_BATTLE",            InstPF_OutOfBattle},
+  {"WAITING",                  InstPF_Waiting},
+  {"WHILE_IMPRISONED",         InstPF_WhileImprisoned},
+  {"ONLY_INJURED",             InstPF_OnlyInjured},
+  {"ONLY_UNDERGAS",            InstPF_OnlyUnderGas},
+  {"ON_TOXIC_TERRAIN",         InstPF_OnToxicTerrain},
+  {"AGAINST_DOOR",             InstPF_AgainstDoor},
+  {"AGAINST_OBJECT",           InstPF_AgainstObject},
+  {NULL,                       0},
   };
 
 const struct NamedCommand creaturetype_job_commands[] = {
@@ -421,6 +430,10 @@ void init_creature_model_stats(void)
         crstat->prison_kind = 0;
         crstat->torture_kind = 0;
         crstat->immunity_flags = 0;
+        for (n = 0; n < CREATURE_TYPES_MAX; n++)
+        {
+            crstat->hostile_towards[n] = 0;
+        }
         crconf->namestr_idx = 0;
         crconf->model_flags = 0;
         // Attraction block.
@@ -507,6 +520,20 @@ void init_creature_model_stats(void)
         crstat->research_value = 0;
         crstat->manufacture_value = 0;
         crstat->partner_training = 0;
+        // ANSO specific.
+        crstat->immune_to_charm = false;
+        crstat->self_recovery = false;
+        crstat->resist_to_magic = false;
+        crstat->is_mechanical = false;
+        crstat->is_undead = false;
+        crstat->is_thief = false;
+        crstat->ethereal = false;
+        crstat->hoarfrost = false;
+        crstat->boss = false;
+        crstat->lava_recovery = 0;
+        crstat->hurt_by_water = 0;
+        crstat->water_recovery = 0;
+        crstat->magic = 100;
     }
 }
 
@@ -987,7 +1014,7 @@ TbBool parse_creaturetype_instance_blocks(char *buf, long len, const char *confi
             inst_inf->validate_target_func = 0;
             inst_inf->validate_target_func_params[0] = 0;
             inst_inf->validate_target_func_params[1] = 0;
-            inst_inf->postal_priority = 0;
+            inst_inf->priority = 0;
         }
     }
     instance_desc[INSTANCE_TYPES_MAX - 1].name = NULL; // must be null for get_id
@@ -1359,11 +1386,11 @@ TbBool parse_creaturetype_instance_blocks(char *buf, long len, const char *confi
                 }
             }
             break;
-        case 21: // Postal Instance priority
-        if (get_conf_parameter_single(buf, &pos, len, word_buf, sizeof(word_buf)) > 0)
+        case 21: // PRIORITY
+            if (get_conf_parameter_single(buf, &pos, len, word_buf, sizeof(word_buf)) > 0)
             {
                 k = atoi(word_buf);
-                inst_inf->postal_priority = k;
+                inst_inf->priority = k;
                 n++;
             }
             if (n < 1)
@@ -1853,7 +1880,7 @@ TbBool load_creaturetypes_config_file(const char *textname, const char *fname, u
                 game.conf.magic_conf.instance_info[i].reset_time = 0;
                 game.conf.magic_conf.instance_info[i].fp_reset_time = 0;
                 game.conf.magic_conf.instance_info[i].graphics_idx = 0;
-                game.conf.magic_conf.instance_info[i].postal_priority = 0;
+                game.conf.magic_conf.instance_info[i].priority = 0;
                 game.conf.magic_conf.instance_info[i].instance_property_flags = 0;
                 game.conf.magic_conf.instance_info[i].force_visibility = 0;
                 game.conf.magic_conf.instance_info[i].primary_target = 0;

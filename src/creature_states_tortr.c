@@ -521,7 +521,7 @@ CrCheckRet process_torture_function(struct Thing *creatng)
     anger_apply_anger_to_creature(creatng, crstat->annoy_in_torture, AngR_Other, 1);
     if ((long)game.play_gameturn >= cctrl->turns_at_job + game.conf.rules.health.turns_per_torture_health_loss)
     {
-        HitPoints torture_damage = compute_creature_max_health(game.conf.rules.health.torture_health_loss, cctrl->explevel);
+        HitPoints torture_damage = (calculate_correct_creature_max_health(creatng) * game.conf.rules.health.torture_health_loss) / 100;
         remove_health_from_thing_and_display_health(creatng, torture_damage);
         cctrl->turns_at_job = (long)game.play_gameturn;
     }

@@ -233,7 +233,8 @@ void process_disease(struct Thing *creatng)
     }
     if (((game.play_gameturn - cctrl->disease_start_turn) % game.conf.rules.magic.disease_lose_health_time) == 0)
     {
-        apply_damage_to_thing_and_display_health(creatng, game.conf.rules.magic.disease_lose_percentage_health * cctrl->max_health / 100, cctrl->disease_caster_plyridx);
+        struct SpellConfig *spconf = get_spell_config(cctrl->active_disease_spell);
+        apply_damage_to_thing_and_display_health(creatng, game.conf.rules.magic.disease_lose_percentage_health * cctrl->max_health / 100, cctrl->disease_caster_plyridx, spconf->element_flags);
     }
 }
 
@@ -305,7 +306,7 @@ void update_god_lightning_ball(struct Thing *thing)
         if (thing_is_invalid(target))
             break;
         shotst = get_shot_model_stats(thing->model);
-        apply_damage_to_thing_and_display_health(target, shotst->damage, thing->owner);
+        apply_damage_to_thing_and_display_health(target, shotst->damage, thing->owner, shotst->element_flags);
         if (target->health < 0)
         {
             struct CreatureControl* cctrl = creature_control_get_from_thing(target);
@@ -545,6 +546,16 @@ TbBool player_uses_power_obey(PlayerNumber plyr_idx)
     return (dungeon->must_obey_turn != 0);
 }
 
+TbBool player_uses_power_mighty_infusion(PlayerNumber plyr_idx)
+{
+    struct PlayerInfo* player = get_player(plyr_idx);
+    if (!player_exists(player)) {
+        return false;
+    }
+    struct Dungeon* dungeon = get_players_dungeon(player);
+    return (dungeon->infusion_turn != 0);
+}
+
 TbBool player_uses_power_hold_audience(PlayerNumber plyr_idx)
 {
     struct PlayerInfo* player = get_player(plyr_idx);
@@ -748,11 +759,11 @@ void timebomb_explode(struct Thing *creatng)
     long weight = compute_creature_weight(creatng);
     if (shotst->area_range != 0)
     {
-        struct CreatureStats *crstat = creature_stats_get_from_thing(creatng);
-        long dist = (compute_creature_attack_range(shotst->area_range * COORD_PER_STL, crstat->luck, cctrl->explevel) * weight) / WEIGHT_DIVISOR;
-        long damage = (compute_creature_attack_spell_damage(shotst->area_damage, crstat->luck, cctrl->explevel, creatng) * weight) / WEIGHT_DIVISOR;
+        long luck = calculate_correct_creature_luck(creatng);
+        long dist = (compute_creature_attack_range(shotst->area_range * COORD_PER_STL, luck, cctrl->explevel) * weight) / WEIGHT_DIVISOR;
+        long damage = (compute_creature_attack_spell_damage(shotst->area_damage, luck, cctrl->explevel, creatng) * weight) / WEIGHT_DIVISOR;
         HitTargetFlags hit_targets = hit_type_to_hit_targets(shotst->area_hit_type);
-        explosion_affecting_area(creatng, &creatng->mappos, dist, damage, (shotst->area_blow * weight) / WEIGHT_DIVISOR, hit_targets);
+        explosion_affecting_area(creatng, &creatng->mappos, dist, damage, (shotst->area_blow * weight) / WEIGHT_DIVISOR, hit_targets, shotst->element_flags);
     }
     struct Thing *efftng = create_used_effect_or_element(&creatng->mappos, TngEff_Explosion5, creatng->owner, creatng->index);
     if (!thing_is_invalid(efftng))
@@ -777,7 +788,7 @@ void timebomb_explode(struct Thing *creatng)
         HitPoints max_damage = (shotst->area_damage * weight) / WEIGHT_DIVISOR;
         long blow_strength = (shotst->area_blow * weight) / WEIGHT_DIVISOR;
         kill_creature(creatng, INVALID_THING, -1, CrDed_NoUnconscious);
-        explosion_affecting_area(efftng, &efftng->mappos, max_dist, max_damage, blow_strength, hit_targets);
+        explosion_affecting_area(efftng, &efftng->mappos, max_dist, max_damage, blow_strength, hit_targets, shotst->element_flags);
     }
 }
 /******************************************************************************/

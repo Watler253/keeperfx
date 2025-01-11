@@ -30,6 +30,31 @@ extern "C" {
 /******************************************************************************/
 #pragma pack(1)
 
+enum MagicElementFlags {
+    DTF_Neutral       = 0x000000,
+    DTF_Physical      = 0x000001,
+    DTF_Biological    = 0x000002,
+    DTF_Electrical    = 0x000004,
+    DTF_Mechanical    = 0x000008,
+    DTF_Temporal      = 0x000010,
+    DTF_Explosive     = 0x000020,
+    DTF_Protective    = 0x000040,
+    DTF_Poisonous     = 0x000080,
+    DTF_Respiratory   = 0x000100,
+    DTF_Heatburn      = 0x000200,
+    DTF_Soaked        = 0x000400,
+    DTF_Frostbite     = 0x000800,
+    DTF_Hoarfrost     = 0x001000,
+    DTF_Arcane        = 0x002000,
+    DTF_Earth         = 0x004000, 
+    DTF_Fire          = 0x008000,
+    DTF_Water         = 0x010000,
+    DTF_Wind          = 0x020000,
+    DTF_Holy          = 0x040000,
+    DTF_Darkness      = 0x080000,
+    DTF_Unstable      = 0x100000,
+};
+
 struct Thing;
 struct Dungeon;
 struct ComponentVector;

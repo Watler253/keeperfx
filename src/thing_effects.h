@@ -285,10 +285,9 @@ struct Thing *create_price_effect(const struct Coord3d *pos, long plyr_idx, long
 
 TbBool area_effect_can_affect_thing(const struct Thing *thing, HitTargetFlags hit_targets, PlayerNumber shot_owner);
 long explosion_affecting_area(struct Thing *tngsrc, const struct Coord3d *pos, MapCoord max_dist,
-    HitPoints max_damage, long blow_strength, HitTargetFlags hit_targets);
-    
+    HitPoints max_damage, long blow_strength, HitTargetFlags hit_targets, ElementFlags element_flags);
 TbBool explosion_affecting_door(struct Thing *tngsrc, struct Thing *tngdst, const struct Coord3d *pos,
-    MapCoordDelta max_dist, HitPoints max_damage, long blow_strength, PlayerNumber owner);    
+    MapCoordDelta max_dist, HitPoints max_damage, long blow_strength, PlayerNumber owner, ElementFlags element_flags);
 /******************************************************************************/
 #ifdef __cplusplus
 }
